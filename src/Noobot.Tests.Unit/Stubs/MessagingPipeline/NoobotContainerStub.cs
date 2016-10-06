@@ -2,6 +2,7 @@
 using Noobot.Core.DependencyResolution;
 using Noobot.Core.MessagingPipeline.Middleware;
 using Noobot.Core.Plugins;
+using StructureMap;
 
 namespace Noobot.Tests.Unit.Stubs.MessagingPipeline
 {
@@ -19,10 +20,15 @@ namespace Noobot.Tests.Unit.Stubs.MessagingPipeline
 
         public T GetPlugin<T>() where T : class, IPlugin
         {
-            throw new System.NotImplementedException();
+            return null;
         }
 
         public IMiddleware GetMiddlewarePipeline()
+        {
+            return null;
+        }
+
+        public IContainer GetStructuremapContainer()
         {
             throw new System.NotImplementedException();
         }

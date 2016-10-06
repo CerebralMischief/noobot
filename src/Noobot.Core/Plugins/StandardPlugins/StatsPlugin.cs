@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Noobot.Core.Logging;
+using Common.Logging;
 
 namespace Noobot.Core.Plugins.StandardPlugins
 {
@@ -21,6 +21,8 @@ namespace Noobot.Core.Plugins.StandardPlugins
         /// </summary>
         public void RecordStat(string key, object value)
         {
+            key = key.ToLower();
+
             lock (_lock)
             {
                 _stats[key] = value;
@@ -32,6 +34,8 @@ namespace Noobot.Core.Plugins.StandardPlugins
         /// </summary>
         public void IncrementState(string key)
         {
+            key = key.ToLower();
+
             lock (_lock)
             {
                 int? value2Store = null;
@@ -45,7 +49,7 @@ namespace Noobot.Core.Plugins.StandardPlugins
                     }
                 }
 
-                _stats[key] = value2Store.HasValue ? value2Store : 1;
+                _stats[key] = value2Store ?? 1;
             }
         }
 
@@ -64,6 +68,7 @@ namespace Noobot.Core.Plugins.StandardPlugins
         public T GetStat<T>(string key)
         {
             T result = default(T);
+            key = key.ToLower();
 
             lock (_lock)
             {
@@ -81,8 +86,8 @@ namespace Noobot.Core.Plugins.StandardPlugins
 
         public void Stop()
         {
-            _log.Log("End stats:");
-            _log.Log(string.Join(Environment.NewLine + "   ", GetStats()));
+            _log.Info("End stats:");
+            _log.Info(string.Join(Environment.NewLine + "   ", GetStats()));
         }
     }
 }
