@@ -36,11 +36,6 @@ namespace Noobot.Core
 
         public async Task Connect()
         {
-            await Connect(isReconnecting:false);
-        }
-
-        public async Task Connect(bool isReconnecting)
-        {
             string slackKey = _configReader.SlackApiKey();
 
             var connector = new SlackConnector.SlackConnector();
@@ -55,10 +50,7 @@ namespace Noobot.Core
             _container.GetPlugin<StatsPlugin>()?.RecordStat("Connected:Since", DateTime.Now.ToString("G"));
             _container.GetPlugin<StatsPlugin>()?.RecordStat("Response:Average", _averageResponse);
 
-            if (!isReconnecting)
-            {
-                StartPlugins();
-            }
+            StartPlugins();
         }
 
         private bool _isDisconnecting;
@@ -74,10 +66,11 @@ namespace Noobot.Core
 
         private void OnDisconnect()
         {
+            StopPlugins();
+
             if (_isDisconnecting)
             {
                 _log.Info("Disconnected.");
-                StopPlugins();
             }
             else
             {
@@ -85,7 +78,7 @@ namespace Noobot.Core
                 Reconnect();
             }
         }
-        
+
         internal void Reconnect()
         {
             _log.Info("Reconnecting...");
@@ -97,7 +90,7 @@ namespace Noobot.Core
             }
 
             _isDisconnecting = false;
-            Connect(isReconnecting: true)
+            Connect()
                 .ContinueWith(task =>
                 {
                     if (task.IsCompleted && !task.IsCanceled && !task.IsFaulted)
@@ -111,7 +104,7 @@ namespace Noobot.Core
                     }
                 });
         }
-        
+
         public async Task MessageReceived(SlackMessage message)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
@@ -124,6 +117,7 @@ namespace Noobot.Core
                 FullText = message.Text,
                 UserId = message.User.Id,
                 Username = GetUsername(message),
+                UserEmail = message.User.Email,
                 Channel = message.ChatHub.Id,
                 ChannelType = message.ChatHub.Type == SlackChatHubType.DM ? ResponseType.DirectMessage : ResponseType.Channel,
                 UserChannel = await GetUserChannel(message),
@@ -150,6 +144,11 @@ namespace Noobot.Core
 
             _log.Info($"[Message ended - Took {stopwatch.ElapsedMilliseconds} milliseconds]");
             _averageResponse.Log(stopwatch.ElapsedMilliseconds);
+        }
+
+        public async Task Ping()
+        {
+            await _connection.Ping();
         }
 
         public async Task SendMessage(ResponseMessage responseMessage)
@@ -196,16 +195,38 @@ namespace Noobot.Core
                     Fallback = attachment.Fallback,
                     ImageUrl = attachment.ImageUrl,
                     ThumbUrl = attachment.ThumbUrl,
-                    AuthorName = attachment.AuthorName
+                    AuthorName = attachment.AuthorName,
+                    ColorHex = attachment.Color,
+                    Fields = GetAttachmentFields(attachment)
                 });
             }
 
             return attachments;
         }
 
+        private IList<SlackAttachmentField> GetAttachmentFields(Attachment attachment)
+        {
+            var attachmentFields = new List<SlackAttachmentField>();
+
+            if (attachment != null && attachment.AttachmentFields != null)
+            {
+                foreach (var attachmentField in attachment.AttachmentFields)
+                {
+                    attachmentFields.Add(new SlackAttachmentField
+                    {
+                        Title = attachmentField.Title,
+                        Value = attachmentField.Value,
+                        IsShort = attachmentField.IsShort
+                    });
+                }
+            }
+
+            return attachmentFields;
+        }
+
         public string GetUserIdForUsername(string username)
         {
-            var user = _connection.UserNameCache.FirstOrDefault(x => x.Value.Equals(username, StringComparison.InvariantCultureIgnoreCase));
+            var user = _connection.UserCache.FirstOrDefault(x => x.Value.Name.Equals(username, StringComparison.InvariantCultureIgnoreCase));
             return string.IsNullOrEmpty(user.Key) ? string.Empty : user.Key;
         }
 
@@ -227,7 +248,7 @@ namespace Noobot.Core
 
         private string GetUsername(SlackMessage message)
         {
-            return _connection.UserNameCache.ContainsKey(message.User.Id) ? _connection.UserNameCache[message.User.Id] : string.Empty;
+            return _connection.UserCache.ContainsKey(message.User.Id) ? _connection.UserCache[message.User.Id].Name : string.Empty;
         }
 
         private async Task<string> GetUserChannel(SlackMessage message)
@@ -262,9 +283,9 @@ namespace Noobot.Core
         {
             SlackChatHub chatHub = null;
 
-            if (_connection.UserNameCache.ContainsKey(userId))
+            if (_connection.UserCache.ContainsKey(userId))
             {
-                string username = "@" + _connection.UserNameCache[userId];
+                string username = "@" + _connection.UserCache[userId].Name;
                 chatHub = _connection.ConnectedDMs().FirstOrDefault(x => x.Name.Equals(username, StringComparison.InvariantCultureIgnoreCase));
             }
 
