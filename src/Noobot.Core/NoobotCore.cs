@@ -36,12 +36,14 @@ namespace Noobot.Core
 
         public async Task Connect()
         {
-            string slackKey = _configReader.SlackApiKey();
+            string slackKey = _configReader.SlackApiKey;
 
             var connector = new SlackConnector.SlackConnector();
             _connection = await connector.Connect(slackKey);
             _connection.OnMessageReceived += MessageReceived;
             _connection.OnDisconnect += OnDisconnect;
+            _connection.OnReconnecting += OnReconnecting;
+            _connection.OnReconnect += OnReconnect;
 
             _log.Info("Connected!");
             _log.Info($"Bots Name: {_connection.Self.Name}");
@@ -53,6 +55,20 @@ namespace Noobot.Core
             StartPlugins();
         }
 
+        private Task OnReconnect()
+        {
+            _log.Info("Connection Restored!");
+            _container.GetPlugin<StatsPlugin>().IncrementState("ConnectionsRestored");
+            return Task.CompletedTask;
+        }
+
+        private Task OnReconnecting()
+        {
+            _log.Info("Attempting to reconnect to Slack...");
+            _container.GetPlugin<StatsPlugin>().IncrementState("Reconnecting");
+            return Task.CompletedTask;
+        }
+
         private bool _isDisconnecting;
         public void Disconnect()
         {
@@ -60,7 +76,10 @@ namespace Noobot.Core
 
             if (_connection != null && _connection.IsConnected)
             {
-                _connection.Disconnect();
+                _connection
+                    .Close()
+                    .GetAwaiter()
+                    .GetResult();
             }
         }
 
@@ -168,7 +187,7 @@ namespace Noobot.Core
                     {
                         ChatHub = chatHub,
                         Text = responseMessage.Text,
-                        Attachments = GetAttachments(responseMessage.Attachment)
+                        Attachments = GetAttachments(responseMessage.Attachments)
                     };
 
                     string textTrimmed = botMessage.Text.Length > 50 ? botMessage.Text.Substring(0, 50) + "..." : botMessage.Text;
@@ -182,33 +201,36 @@ namespace Noobot.Core
             }
         }
 
-        private IList<SlackAttachment> GetAttachments(Attachment attachment)
+        private IList<SlackAttachment> GetAttachments(List<Attachment> attachments)
         {
-            var attachments = new List<SlackAttachment>();
+            var slackAttachments = new List<SlackAttachment>();
 
-            if (attachment != null)
+            if (attachments != null)
             {
-                attachments.Add(new SlackAttachment
+                foreach (var attachment in attachments)
                 {
-                    Text = attachment.Text,
-                    Title = attachment.Title,
-                    Fallback = attachment.Fallback,
-                    ImageUrl = attachment.ImageUrl,
-                    ThumbUrl = attachment.ThumbUrl,
-                    AuthorName = attachment.AuthorName,
-                    ColorHex = attachment.Color,
-                    Fields = GetAttachmentFields(attachment)
-                });
+                    slackAttachments.Add(new SlackAttachment
+                    {
+                        Text = attachment.Text,
+                        Title = attachment.Title,
+                        Fallback = attachment.Fallback,
+                        ImageUrl = attachment.ImageUrl,
+                        ThumbUrl = attachment.ThumbUrl,
+                        AuthorName = attachment.AuthorName,
+                        ColorHex = attachment.Color,
+                        Fields = GetAttachmentFields(attachment)
+                    });
+                }
             }
 
-            return attachments;
+            return slackAttachments;
         }
 
         private IList<SlackAttachmentField> GetAttachmentFields(Attachment attachment)
         {
             var attachmentFields = new List<SlackAttachmentField>();
 
-            if (attachment != null && attachment.AttachmentFields != null)
+            if (attachment?.AttachmentFields != null)
             {
                 foreach (var attachmentField in attachment.AttachmentFields)
                 {
@@ -226,13 +248,13 @@ namespace Noobot.Core
 
         public string GetUserIdForUsername(string username)
         {
-            var user = _connection.UserCache.FirstOrDefault(x => x.Value.Name.Equals(username, StringComparison.InvariantCultureIgnoreCase));
+            var user = _connection.UserCache.FirstOrDefault(x => x.Value.Name.Equals(username, StringComparison.OrdinalIgnoreCase));
             return string.IsNullOrEmpty(user.Key) ? string.Empty : user.Key;
         }
 
         public string GetChannelId(string channelName)
         {
-            var channel = _connection.ConnectedChannels().FirstOrDefault(x => x.Name.Equals(channelName, StringComparison.InvariantCultureIgnoreCase));
+            var channel = _connection.ConnectedChannels().FirstOrDefault(x => x.Name.Equals(channelName, StringComparison.OrdinalIgnoreCase));
             return channel != null ? channel.Id : string.Empty;
         }
 
@@ -286,7 +308,7 @@ namespace Noobot.Core
             if (_connection.UserCache.ContainsKey(userId))
             {
                 string username = "@" + _connection.UserCache[userId].Name;
-                chatHub = _connection.ConnectedDMs().FirstOrDefault(x => x.Name.Equals(username, StringComparison.InvariantCultureIgnoreCase));
+                chatHub = _connection.ConnectedDMs().FirstOrDefault(x => x.Name.Equals(username, StringComparison.OrdinalIgnoreCase));
             }
 
             if (chatHub == null && joinChannel)
